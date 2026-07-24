@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>F1 Pro Racing</title>
+    <title>F1 Pro Racing - Gears</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body, html {
@@ -39,7 +39,7 @@
         /* РУЛЬ СЛЕВА */
         #steering-wheel {
             position: absolute; bottom: 30px; left: 30px;
-            width: 120px; height: 120px;
+            width: 130px; height: 130px;
             background: rgba(255, 255, 255, 0.1);
             border: 4px solid rgba(255, 255, 255, 0.5);
             border-radius: 50%; touch-action: none; z-index: 15;
@@ -48,12 +48,11 @@
         }
         #wheel-inner {
             width: 100%; height: 100%; position: relative;
-            border-radius: 50%; transition: transform 0.05s linear;
+            border-radius: 50%; transition: transform 0.03s linear;
         }
-        /* Спицы руля */
         #wheel-inner::before {
             content: ''; position: absolute; top: 50%; left: 10%; right: 10%; height: 6px;
-            background: rgba(255, 255, 255, 0.6); transform: translateY(-50%); border-radius: 3px;
+            background: rgba(255, 255, 255, 0.7); transform: translateY(-50%); border-radius: 3px;
         }
         #wheel-inner::after {
             content: ''; position: absolute; top: 50%; left: 50%; width: 36px; height: 36px;
@@ -61,35 +60,24 @@
             transform: translate(-50%, -50%);
         }
 
-        /* ПЕДАЛЬ ГАЗА (РЫЧАГ) СПРАВА */
-        #throttle-container {
-            position: absolute; bottom: 30px; right: 30px;
-            width: 60px; height: 180px;
-            background: rgba(0, 0, 0, 0.5);
-            border: 3px solid rgba(255, 255, 255, 0.4);
-            border-radius: 15px; touch-action: none; z-index: 15;
-            display: flex; flex-direction: column; align-items: center;
-            backdrop-filter: blur(2px);
+        /* ПАНЕЛЬ ПЕРЕДАЧ СПРАВА */
+        #gear-container {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 75px; background: rgba(0, 0, 0, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px; padding: 8px; touch-action: none; z-index: 15;
+            display: flex; flex-direction: column; gap: 6px;
+            backdrop-filter: blur(4px);
         }
-        #throttle-bar-bg {
-            position: absolute; bottom: 10px; width: 16px; height: 150px;
-            background: rgba(255, 255, 255, 0.15); border-radius: 8px; overflow: hidden;
+        .gear-btn {
+            width: 100%; height: 38px; background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 8px;
+            color: #fff; font-weight: bold; font-size: 15px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: background 0.1s, transform 0.05s;
         }
-        #throttle-fill {
-            position: absolute; bottom: 0; width: 100%; height: 0%;
-            background: linear-gradient(to top, #4caf50, #ffeb3b, #f44336);
-            border-radius: 8px;
-        }
-        #throttle-knob {
-            position: absolute; bottom: 0px; left: 50%;
-            width: 44px; height: 32px; background: #e53935;
-            border: 2px solid #fff; border-radius: 8px;
-            transform: translateX(-50%);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
-            cursor: pointer;
-        }
-        #throttle-text {
-            position: absolute; top: -25px; font-size: 14px; font-weight: bold; color: #ffeb3b;
+        .gear-btn:active, .gear-btn.active {
+            background: #e53935; border-color: #fff; transform: scale(0.95);
         }
 
         @media (min-width: 768px) {
@@ -106,7 +94,7 @@
         <div id="ui">
             Круг: <span id="lap" class="highlight">1</span> / 5<br>
             Время: <span id="time" class="highlight">0.00</span>с
-            <div id="start-hint">Поверните руль и дайте газ для старта</div>
+            <div id="start-hint">Поверните руль и выберите передачу</div>
         </div>
         <div id="message">ФИНИШ!<span id="final-time"></span></div>
         
@@ -115,11 +103,13 @@
             <div id="wheel-inner"></div>
         </div>
 
-        <!-- РЫЧАГ ГАЗА -->
-        <div id="throttle-container">
-            <div id="throttle-text">0%</div>
-            <div id="throttle-bar-bg"><div id="throttle-fill"></div></div>
-            <div id="throttle-knob"></div>
+        <!-- КНОПКИ ПЕРЕДАЧ (20-100%) -->
+        <div id="gear-container">
+            <div class="gear-btn" data-speed="100">100%</div>
+            <div class="gear-btn" data-speed="80">80%</div>
+            <div class="gear-btn" data-speed="60">60%</div>
+            <div class="gear-btn" data-speed="40">40%</div>
+            <div class="gear-btn active" data-speed="20">20%</div>
         </div>
 
         <canvas id="gameCanvas"></canvas>
@@ -142,17 +132,18 @@
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
 
-        const trackWidth = Math.max(50, MathMinDim * 0.15);
-        let baseRadius = (MathMinDim / 2) - trackWidth - 20;
-        if (baseRadius < 50) baseRadius = 50;
+        const trackWidth = Math.max(55, MathMinDim * 0.16);
+        let baseRadius = (MathMinDim / 2) - trackWidth - 30;
+        if (baseRadius < 60) baseRadius = 60;
 
-        // --- ГЕНЕРАЦИЯ ТРАССЫ ---
-        const numPoints = 150;
+        // --- БОЛЕЕ ДЛИННАЯ И ИНТЕРЕСНАЯ КАРТА ---
+        const numPoints = 200; // Больше точек для длинной трассы
         const points = [];
 
         for (let i = 0; i < numPoints; i++) {
             let angle = (i / numPoints) * Math.PI * 2;
-            let rMod = Math.sin(angle * 2) * 0.25 + Math.cos(angle * 3) * 0.15;
+            // Сложная, более вытянутая и длинная конфигурация трассы
+            let rMod = Math.sin(angle * 3) * 0.3 + Math.cos(angle * 2) * 0.2;
             let r = baseRadius * (1 + rMod);
             points.push({ angle, r });
         }
@@ -177,10 +168,10 @@
             y: cy,
             angle: Math.PI / 2,
             speed: 0,
-            maxSpeed: ((baseRadius * Math.PI * 2) / 550) * 5,
-            turnSpeed: 0.08,
-            width: trackWidth * 0.35,
-            height: trackWidth * 0.16
+            maxSpeed: ((baseRadius * Math.PI * 2) / 600) * 5,
+            turnSpeed: 0.085,
+            width: trackWidth * 0.38,
+            height: trackWidth * 0.17
         };
 
         let laps = 1;
@@ -190,8 +181,8 @@
         let finished = false;
         let startTime = 0;
 
-        let throttlePercent = 0; // От 0 до 100
-        let steerInput = -1;       // От -1 (влево) до 1 (вправо)
+        let currentThrottlePercent = 20; // По умолчанию на старте 20%
+        let steerInput = 0;
 
         function triggerGameStart() {
             if (!gameStarted && !finished) {
@@ -202,39 +193,48 @@
             }
         }
 
-        // --- УПРАВЛЕНИЕ РУЛЕМ ---
+        // --- МУЛЬТИТАЧ УПРАВЛЕНИЕ РУЛЕМ ---
         const wheelBase = document.getElementById('steering-wheel');
         const wheelInner = document.getElementById('wheel-inner');
-        let wheelActive = false;
+        let wheelTouchId = null;
         let wheelCenterX = 0, wheelCenterY = 0;
 
-        wheelBase.addEventListener('pointerdown', e => {
+        wheelBase.addEventListener('touchstart', e => {
             e.preventDefault();
-            wheelActive = true;
-            const rect = wheelBase.getBoundingClientRect();
-            wheelCenterX = rect.left + rect.width / 2;
-            wheelCenterY = rect.top + rect.height / 2;
-            updateWheel(e);
-            triggerGameStart();
-        });
+            if (wheelTouchId === null) {
+                const touch = e.changedTouches[0];
+                wheelTouchId = touch.identifier;
+                const rect = wheelBase.getBoundingClientRect();
+                wheelCenterX = rect.left + rect.width / 2;
+                wheelCenterY = rect.top + rect.height / 2;
+                updateWheel(touch);
+                triggerGameStart();
+            }
+        }, {passive: false});
 
-        window.addEventListener('pointermove', e => {
-            if (!wheelActive) return;
-            e.preventDefault();
-            updateWheel(e);
-        });
+        window.addEventListener('touchmove', e => {
+            if (wheelTouchId === null) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                let touch = e.changedTouches[i];
+                if (touch.identifier === wheelTouchId) {
+                    e.preventDefault();
+                    updateWheel(touch);
+                }
+            }
+        }, {passive: false});
 
-        window.addEventListener('pointerup', e => {
-            if (wheelActive) {
-                wheelActive = false;
-                steerInput = 0;
-                wheelInner.style.transform = `rotate(0deg)`;
+        window.addEventListener('touchend', e => {
+            if (wheelTouchId === null) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === wheelTouchId) {
+                    wheelTouchId = null;
+                    steerInput = 0;
+                    wheelInner.style.transform = `rotate(0deg)`;
+                }
             }
         });
 
-        function updateWheel(e) {
-            const touch = e.touches ? e.touches[0] : e;
-            if (!touch) return;
+        function updateWheel(touch) {
             let dx = touch.clientX - wheelCenterX;
             let dy = touch.clientY - wheelCenterY;
             let angleRad = Math.atan2(dy, dx);
@@ -243,54 +243,32 @@
             if (angleDeg > 180) angleDeg -= 360;
             if (angleDeg < -180) angleDeg += 360;
             
-            // Ограничение поворота руля до 90 градусов в каждую сторону
-            if (angleDeg > 90) angleDeg = 90;
-            if (angleDeg < -90) angleDeg = -90;
+            if (angleDeg > 95) angleDeg = 95;
+            if (angleDeg < -95) angleDeg = -95;
 
             wheelInner.style.transform = `rotate(${angleDeg}deg)`;
-            steerInput = angleDeg / 90; // Нормализация от -1 до 1
+            steerInput = angleDeg / 95;
         }
 
-        // --- УПРАВЛЕНИЕ ПЕДАЛЬЮ ГАЗА (РЫЧАГОМ) ---
-        const throttleContainer = document.getElementById('throttle-container');
-        const throttleKnob = document.getElementById('throttle-knob');
-        const throttleFill = document.getElementById('throttle-fill');
-        const throttleText = document.getElementById('throttle-text');
-        const maxThrottleHeight = 150;
-        let throttleActive = false;
-
-        throttleContainer.addEventListener('pointerdown', e => {
-            e.preventDefault();
-            throttleActive = true;
-            updateThrottle(e);
-            triggerGameStart();
-        });
-
-        window.addEventListener('pointermove', e => {
-            if (!throttleActive) return;
-            e.preventDefault();
-            updateThrottle(e);
-        });
-
-        window.addEventListener('pointerup', e => {
-            throttleActive = false;
-        });
-
-        function updateThrottle(e) {
-            const touch = e.touches ? e.touches[0] : e;
-            if (!touch) return;
-            const rect = throttleContainer.getBoundingClientRect();
-            let y = rect.bottom - 10 - touch.clientY; // Снизу вверх
+        // --- КНОПКИ ПЕРЕДАЧ (МУЛЬТИТАЧ) ---
+        const gearBtns = document.querySelectorAll('.gear-btn');
+        gearBtns.forEach(btn => {
+            btn.addEventListener('touchstart', e => {
+                e.preventDefault();
+                gearBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentThrottlePercent = parseInt(btn.getAttribute('data-speed'));
+                triggerGameStart();
+            }, {passive: false});
             
-            if (y < 0) y = 0;
-            if (y > maxThrottleHeight) y = maxThrottleHeight;
-
-            throttlePercent = Math.round((y / maxThrottleHeight) * 100);
-            
-            throttleKnob.style.bottom = `${y}px`;
-            throttleFill.style.height = `${throttlePercent}%`;
-            throttleText.innerText = `${throttlePercent}%`;
-        }
+            // Также поддержка кликов мышей для отладки на ПК
+            btn.addEventListener('mousedown', () => {
+                gearBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentThrottlePercent = parseInt(btn.getAttribute('data-speed'));
+                triggerGameStart();
+            });
+        });
 
 
         // --- ОТРИСОВКА ТРАССЫ ---
@@ -343,30 +321,46 @@
             ctx.restore();
         }
 
+        // --- ДЕТАЛИЗИРОВАННЫЙ БОЛИД (С ЯСНЫМ ПЕРЕДОМ И ЗАДОМ) ---
         function drawCar() {
             ctx.save();
             ctx.translate(car.x, car.y);
             ctx.rotate(car.angle);
             
+            // Тень
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(-car.width/2 + 3, -car.height/2 + 3, car.width, car.height);
 
+            // ЗАДНЯЯ ЧАСТЬ (Мощное черное антикрыло + двигатель)
             ctx.fillStyle = '#111';
-            ctx.fillRect(-car.width/2 - 2, -car.height/2, 6, car.height);
+            ctx.fillRect(-car.width/2 - 3, -car.height/2 - 2, 7, car.height + 4); // Заднее крыло
             
+            // Основной красный корпус
             ctx.fillStyle = '#e53935';
             ctx.beginPath();
             ctx.moveTo(-car.width/2 + 4, -car.height/3);
             ctx.lineTo(car.width/2 - 4, -car.height/4);
+            ctx.lineTo(car.width/2, 0); // Острый нос спереди
             ctx.lineTo(car.width/2 - 4, car.height/4);
             ctx.lineTo(-car.width/2 + 4, car.height/3);
+            ctx.closePath();
             ctx.fill();
 
+            // ПЕРЕДНЯЯ ЧАСТЬ (Переднее широкое черное антикрыло и носовой обтекатель)
             ctx.fillStyle = '#111';
-            ctx.fillRect(car.width/2 - 4, -car.height/2, 4, car.height);
+            ctx.fillRect(car.width/2 - 4, -car.height/2, 5, car.height); // Переднее антикрыло
+            
+            // Кокпит (кабина пилота посредине)
+            ctx.fillStyle = '#050505';
+            ctx.beginPath();
+            ctx.roundRect(-car.width * 0.05, -car.height * 0.18, car.width * 0.3, car.height * 0.36, 4);
+            ctx.fill();
 
-            ctx.fillStyle = '#000';
-            ctx.fillRect(-car.width*0.1, -car.height*0.15, car.width*0.25, car.height*0.3);
+            // Шлем пилота (виден внутри кабины)
+            ctx.fillStyle = '#ffeb3b';
+            ctx.beginPath();
+            ctx.arc(car.width * 0.1, 0, car.height * 0.12, 0, Math.PI * 2);
+            ctx.fill();
 
             ctx.restore();
         }
@@ -375,20 +369,17 @@
         function update() {
             if (finished) return;
 
-            // Скорость напрямую зависит от положения рычага газа (0 - 100%)
-            let targetSpeed = (throttlePercent / 100) * car.maxSpeed;
-            // Плавный разгон/замедление
+            let targetSpeed = (currentThrottlePercent / 100) * car.maxSpeed;
             car.speed += (targetSpeed - car.speed) * 0.1;
 
             if (Math.abs(car.speed) > 0.1) {
                 car.angle += car.turnSpeed * steerInput * (car.speed / car.maxSpeed);
             }
 
-            // Движение вперед
             car.x += Math.cos(car.angle) * car.speed;
             car.y += Math.sin(car.angle) * car.speed;
 
-            // --- СТЕНЫ И ГРАНИЦЫ ТРАССЫ (ОТБОЙНИКИ) ---
+            // --- ОТБОЙНИКИ ТРАССЫ ---
             let angFromCenter = Math.atan2(car.y - cy, car.x - cx);
             let distFromCenter = Math.hypot(car.y - cy, car.x - cx);
             let trackRad = getTrackRadius(angFromCenter);
@@ -396,19 +387,12 @@
             let innerLimit = trackRad - (trackWidth / 2.2);
             let outerLimit = trackRad + (trackWidth / 2.2);
 
-            // Если машина ударяется об внутренний или внешний отбойник трассы
             if (distFromCenter < innerLimit || distFromCenter > outerLimit) {
-                // Возвращаем машину обратно на границу дороги
                 let clampedDist = Math.max(innerLimit, Math.min(outerLimit, distFromCenter));
                 car.x = cx + Math.cos(angFromCenter) * clampedDist;
                 car.y = cy + Math.sin(angFromCenter) * clampedDist;
                 
-                // Гасим скорость от удара об отбойник
-                car.speed *= 0.5;
-                throttlePercent = Math.max(0, throttlePercent - 20); // Сбрасываем газ при ударе
-                throttleKnob.style.bottom = `${(throttlePercent/100)*maxThrottleHeight}px`;
-                throttleFill.style.height = `${throttlePercent}%`;
-                throttleText.innerText = `${throttlePercent}%`;
+                car.speed *= 0.4; // Гашение скорости при ударе об отбойник
             }
 
             // --- СИСТЕМА КРУГОВ ---
