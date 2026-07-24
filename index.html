@@ -2,12 +2,17 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mini Racing 5 Laps</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-select=none">
+    <title>Mini Racing - Touch & Key Control</title>
     <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
         body {
             margin: 0;
-            background: #1a1a1a;
+            background: #121212;
             color: #fff;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
@@ -19,10 +24,11 @@
         }
         #game-container {
             position: relative;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9);
             border-radius: 12px;
             overflow: hidden;
             border: 4px solid #333;
+            touch-action: none;
         }
         canvas {
             display: block;
@@ -30,23 +36,30 @@
         }
         #ui {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 20px;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 18px;
             font-weight: bold;
             pointer-events: none;
             border: 2px solid #555;
+            backdrop-filter: blur(4px);
         }
         .highlight { color: #4fc3f7; }
+        #start-hint {
+            font-size: 13px;
+            color: #ffb74d;
+            margin-top: 5px;
+            font-weight: normal;
+        }
         #message {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 56px;
+            font-size: 52px;
             font-weight: 900;
             color: #ffd700;
             text-shadow: 0 0 20px rgba(0, 0, 0, 0.9), 4px 4px 0 #000;
@@ -57,9 +70,37 @@
         }
         #message span {
             display: block;
-            font-size: 24px;
+            font-size: 22px;
             color: #fff;
             margin-top: 10px;
+        }
+
+        /* --- СТИЛИ ВИРТУАЛЬНОГО ДЖОЙСТИКА (СТИКА) --- */
+        #joystick-container {
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
+            width: 110px;
+            height: 110px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 3px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            touch-action: none;
+            z-index: 5;
+            backdrop-filter: blur(2px);
+        }
+        #joystick-knob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 48px;
+            height: 48px;
+            background: radial-gradient(circle, #ff5252 0%, #b71c1c 100%);
+            border: 2px solid #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
         }
     </style>
 </head>
@@ -68,12 +109,19 @@
     <div id="game-container">
         <div id="ui">
             Круг: <span id="lap" class="highlight">1</span> / 5<br>
-            Время: <span id="time">0.00</span>с
+            Время: <span id="time" class="highlight">0.00</span>с
+            <div id="start-hint"> Нажмите клавиши или потяните стик для старта</div>
         </div>
+
         <div id="message">
             ФИНИШ!
             <span id="final-time"></span>
         </div>
+
+        <div id="joystick-container">
+            <div id="joystick-knob"></div>
+        </div>
+
         <canvas id="gameCanvas" width="900" height="700"></canvas>
     </div>
 
@@ -81,32 +129,29 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
-        // Элементы UI
+        // UI Элементы
         const uiLap = document.getElementById('lap');
         const uiTime = document.getElementById('time');
+        const uiHint = document.getElementById('start-hint');
         const msg = document.getElementById('message');
         const finalTimeLabel = document.getElementById('final-time');
 
-        // Центр экрана
+        // Центр трассы
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
 
-        // --- ГЕНЕРАЦИЯ ТРАССЫ ---
-        const numPoints = 60; // Количество точек для сглаживания
+        // --- ГЕНЕРАЦИЯ СЛУЧАЙНОЙ ТРАССЫ ---
+        const numPoints = 60;
         const points = [];
         const trackWidth = 70;
 
-        // Создаем замкнутый контур с умеренными изгибами
         for (let i = 0; i < numPoints; i++) {
             let angle = (i / numPoints) * Math.PI * 2;
-            // Базовый радиус 240px. Добавляем синусоидальный шум + немного рандома, 
-            // чтобы трасса была кривой, но плавной и проходимой.
-            let noise = Math.sin(angle * 4) * 25 + Math.cos(angle * 2) * 20 + (Math.random() * 15 - 7.5);
+            let noise = Math.sin(angle * 4) * 25 + Math.cos(angle * 2) * 20 + (Math.random() * 14 - 7);
             let r = 240 + noise;
             points.push({ angle, r });
         }
 
-        // Функция для вычисления точного радиуса трассы под любым углом (линейная интерполяция)
         function getTrackRadius(ang) {
             let normalized = ang % (Math.PI * 2);
             if (normalized < 0) normalized += Math.PI * 2;
@@ -114,45 +159,111 @@
             let index = (normalized / (Math.PI * 2)) * numPoints;
             let i1 = Math.floor(index);
             let i2 = (i1 + 1) % numPoints;
-            let t = index - i1; // Процент между двумя точками
+            let t = index - i1;
             
             return points[i1].r * (1 - t) + points[i2].r * t;
         }
 
         // --- НАСТРОЙКИ МАШИНКИ ---
-        let startRadius = getTrackRadius(0); // Спавнимся ровно на линии старта (угол 0)
+        let startRadius = getTrackRadius(0);
         
         const car = {
             x: cx + startRadius,
             y: cy,
-            angle: Math.PI / 2, // Смотрит вниз, чтобы поехать по часовой стрелке
+            angle: Math.PI / 2, // Направление вниз по часовой стрелке
             speed: 0,
-            maxSpeed: 2.5,     // Подобрано так, чтобы круг (~1500px) занимал ~10 сек при 60 FPS
+            maxSpeed: 2.5,     // Задано так, чтобы круг проходился примерно за 10 сек
             accel: 0.06,
-            friction: 0.97,    // Трение асфальта
-            grassFriction: 0.85, // Сильное трение травы (замедление)
+            friction: 0.97,
+            grassFriction: 0.83,
             turnSpeed: 0.055,
             width: 22,
             height: 12
         };
 
-        // --- ЛОГИКА ИГРЫ ---
-        const keys = {};
-        window.addEventListener('keydown', e => keys[e.code] = true);
-        window.addEventListener('keyup', e => keys[e.code] = false);
-
+        // --- СОСТОЯНИЕ ИГРЫ И ТАЙМЕРА ---
         let laps = 1;
         const maxLaps = 5;
         let prevAngleRelative = 0;
-        let startTime = Date.now();
+        let gameStarted = false; // Флаг: запущен ли отсчет времени
         let finished = false;
+        let startTime = 0;
+        let finalRecordedTime = 0;
 
+        function triggerGameStart() {
+            if (!gameStarted && !finished) {
+                gameStarted = true;
+                startTime = Date.now();
+                uiHint.innerText = "Гонка началась!";
+                uiHint.style.color = "#81c784";
+            }
+        }
+
+        // --- УПРАВЛЕНИЕ КЛАВИАТУРОЙ ---
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+                triggerGameStart();
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        // --- УПРАВЛЕНИЕ ВИРТУАЛЬНЫМ СТИКОМ ---
+        const joystickBase = document.getElementById('joystick-container');
+        const joystickKnob = document.getElementById('joystick-knob');
+        const maxJoystickRadius = 40;
+        let joystickActive = false;
+        let joystickVector = { x: 0, y: 0 }; // От -1 до 1 по оси X и Y
+
+        function handlePointerStart(e) {
+            joystickActive = true;
+            updateJoystick(e);
+            triggerGameStart();
+        }
+
+        function handlePointerMove(e) {
+            if (!joystickActive) return;
+            updateJoystick(e);
+        }
+
+        function handlePointerEnd() {
+            joystickActive = false;
+            joystickVector = { x: 0, y: 0 };
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+        }
+
+        function updateJoystick(e) {
+            const rect = joystickBase.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            let dx = e.clientX - centerX;
+            let dy = e.clientY - centerY;
+            
+            let dist = Math.hypot(dx, dy);
+            if (dist > maxJoystickRadius) {
+                dx = (dx / dist) * maxJoystickRadius;
+                dy = (dy / dist) * maxJoystickRadius;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            
+            joystickVector.x = dx / maxJoystickRadius;
+            joystickVector.y = dy / maxJoystickRadius; // Отрицательный y = вверх
+        }
+
+        joystickBase.addEventListener('pointerdown', handlePointerStart);
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerEnd);
+        window.addEventListener('pointercancel', handlePointerEnd);
+
+        // --- ОТРИСОВКА ---
         function drawTrack() {
-            // Очистка и фон (трава)
             ctx.fillStyle = '#2e7d32';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Отрисовка асфальта
+            // Асфальтовая трасса
             ctx.beginPath();
             for (let i = 0; i <= numPoints; i++) {
                 let p = points[i % numPoints];
@@ -163,18 +274,18 @@
             }
             ctx.closePath();
             
-            // Внешний контур (поребрики)
+            // Внешние бордюры
             ctx.lineWidth = trackWidth + 6;
             ctx.strokeStyle = '#b71c1c'; 
             ctx.lineJoin = 'round';
             ctx.stroke();
 
-            // Сам асфальт
+            // Полотно дороги
             ctx.lineWidth = trackWidth;
             ctx.strokeStyle = '#424242';
             ctx.stroke();
 
-            // Разметка старт/финиш
+            // Линия Старт/Финиш
             ctx.save();
             ctx.translate(cx + startRadius, cy);
             for(let j = -trackWidth/2; j < trackWidth/2; j += 10) {
@@ -191,20 +302,20 @@
             ctx.translate(car.x, car.y);
             ctx.rotate(car.angle);
             
-            // Тень машинки
+            // Тень
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.fillRect(-car.width/2 + 2, -car.height/2 + 2, car.width, car.height);
 
             // Корпус
-            ctx.fillStyle = '#d32f2f'; // Красная гоночная
+            ctx.fillStyle = '#d32f2f';
             ctx.beginPath();
             ctx.roundRect(-car.width/2, -car.height/2, car.width, car.height, 3);
             ctx.fill();
 
             // Стекла
-            ctx.fillStyle = '#1e88e5';
-            ctx.fillRect(-car.width/2 + 4, -car.height/2 + 1, 6, car.height - 2); // Заднее
-            ctx.fillRect(car.width/2 - 7, -car.height/2 + 1, 4, car.height - 2);  // Лобовое
+            ctx.fillStyle = '#81d4fa';
+            ctx.fillRect(-car.width/2 + 4, -car.height/2 + 1, 5, car.height - 2); 
+            ctx.fillRect(car.width/2 - 7, -car.height/2 + 1, 4, car.height - 2);  
 
             // Фары
             ctx.fillStyle = '#ffee58';
@@ -214,68 +325,87 @@
             ctx.restore();
         }
 
+        // --- ЛОГИКА ОБНОВЛЕНИЯ ---
         function update() {
             if (finished) return;
 
-            // Управление
-            let isMoving = false;
-            if (keys['ArrowUp'] || keys['KeyW']) { car.speed += car.accel; isMoving = true; }
-            if (keys['ArrowDown'] || keys['KeyS']) { car.speed -= car.accel; isMoving = true; }
-            
-            // Поворот зависит от текущей скорости
-            let turnMod = (car.speed / car.maxSpeed); 
-            if (keys['ArrowLeft'] || keys['KeyA']) car.angle -= car.turnSpeed * turnMod;
-            if (keys['ArrowRight'] || keys['KeyD']) car.angle += car.turnSpeed * turnMod;
+            let throttle = 0; // -1 (назад) до 1 (вперед)
+            let steer = 0;    // -1 (влево) до 1 (вправо)
 
-            // Вычисляем положение машины относительно центра трассы
+            // Обработка клавиатуры
+            if (keys['ArrowUp'] || keys['KeyW']) throttle += 1;
+            if (keys['ArrowDown'] || keys['KeyS']) throttle -= 1;
+            if (keys['ArrowLeft'] || keys['KeyA']) steer -= 1;
+            if (keys['ArrowRight'] || keys['KeyD']) steer += 1;
+
+            // Обработка стика (перекрывает или дополняет)
+            if (joystickActive) {
+                throttle = -joystickVector.y; // Движение стика вверх дает отрицательный y, меняем знак
+                steer = joystickVector.x;
+            }
+
+            // Газ и тормоз/реверс
+            if (throttle !== 0) {
+                car.speed += car.accel * throttle;
+            }
+
+            // Поворот
+            let turnMod = (car.speed / car.maxSpeed);
+            car.angle += car.turnSpeed * steer * turnMod;
+
+            // Проверка съезда на траву
             let angFromCenter = Math.atan2(car.y - cy, car.x - cx);
             let distFromCenter = Math.hypot(car.y - cy, car.x - cx);
             let trackRad = getTrackRadius(angFromCenter);
 
-            // Проверка: находится ли машина на асфальте?
             let isOnGrass = Math.abs(distFromCenter - trackRad) > (trackWidth / 2 - 5);
             
-            // Применяем трение (трава сильно тормозит)
+            // Трение
             if (isOnGrass) {
                 car.speed *= car.grassFriction;
             } else {
                 car.speed *= car.friction;
             }
 
-            // Ограничение скорости
+            // Ограничения скорости
             if (car.speed > car.maxSpeed && !isOnGrass) car.speed = car.maxSpeed;
             if (car.speed < -car.maxSpeed / 1.5) car.speed = -car.maxSpeed / 1.5;
 
-            // Обновление координат
+            // Движение
             car.x += Math.cos(car.angle) * car.speed;
             car.y += Math.sin(car.angle) * car.speed;
 
-            // --- СИСТЕМА КРУГОВ ---
+            // --- СИСТЕМА КРУГОВ И ФИКСАЦИЯ ВРЕМЕНИ ---
             let curNormalized = angFromCenter;
             if (curNormalized < 0) curNormalized += Math.PI * 2;
 
-            // Пересечение линии старта (от 4-й четверти к 1-й)
             if (prevAngleRelative > 5 && curNormalized < 1) {
-                laps++;
-                if (laps > maxLaps) {
-                    finished = true;
-                    msg.style.display = 'block';
-                    let totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-                    finalTimeLabel.innerText = `Итоговое время: ${totalTime} сек`;
-                    uiLap.innerText = maxLaps;
-                } else {
+                if (gameStarted) {
+                    laps++;
+                    if (laps > maxLaps) {
+                        finished = true;
+                        finalRecordedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                        
+                        // Замораживаем интерфейс и показываем финиш
+                        uiTime.innerText = finalRecordedTime;
+                        uiLap.innerText = maxLaps;
+                        msg.style.display = 'block';
+                        finalTimeLabel.innerText = `Зафиксированное время: ${finalRecordedTime} сек`;
+                        uiHint.innerText = "Гонка завершена!";
+                    } else {
+                        uiLap.innerText = laps;
+                    }
+                }
+            } else if (prevAngleRelative < 1 && curNormalized > 5) {
+                if (gameStarted && laps > 1) {
+                    laps--;
                     uiLap.innerText = laps;
                 }
             }
-            // Защита от накрутки кругов ездой задом наперед
-            else if (prevAngleRelative < 1 && curNormalized > 5) {
-                laps--;
-                uiLap.innerText = laps;
-            }
             prevAngleRelative = curNormalized;
 
-            // Обновление UI времени
-            if (!finished) {
+            // Обновление живого таймера
+            if (gameStarted && !finished) {
                 let elapsed = (Date.now() - startTime) / 1000;
                 uiTime.innerText = elapsed.toFixed(2);
             }
@@ -288,11 +418,11 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // Инициализация стартового угла
+        // Начальный угол
         prevAngleRelative = Math.atan2(car.y - cy, car.x - cx);
         if (prevAngleRelative < 0) prevAngleRelative += Math.PI * 2;
         
-        // Запуск
+        // Старт цикла
         gameLoop();
     </script>
 </body>
