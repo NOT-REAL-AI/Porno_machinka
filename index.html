@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>F1 3D First Person</title>
+    <title>F1 Retro 3D Racing</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body, html {
@@ -14,7 +14,7 @@
         }
         #game-container {
             width: 100vw; height: 100vh; position: relative;
-            background: linear-gradient(to bottom, #1976d2 0%, #42a5f5 50%, #1b5e20 50%);
+            background: #111;
         }
         canvas { display: block; width: 100%; height: 100%; }
         
@@ -120,50 +120,29 @@
 
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-        
-        const numPoints = 150;
-        const points = [];
-        const baseRadius = 350;
 
-        for (let i = 0; i < numPoints; i++) {
-            let angle = (i / numPoints) * Math.PI * 2;
-            let rMod = Math.sin(angle * 2) * 0.25 + Math.cos(angle * 3) * 0.15;
-            let r = baseRadius * (1 + rMod);
-            points.push({ angle, r });
+        // Карта трассы (список секций с изгибами)
+        const totalRoadLength = 600; // общая длина трассы в сегментах
+        const roadMap = [];
+
+        for (let i = 0; i < totalRoadLength; i++) {
+            // Создаем плавные повороты трассы влево и вправо
+            let curve = Math.sin(i / 30) * 2.5 + Math.cos(i / 15) * 1.5;
+            roadMap.push({ curve: curve });
         }
 
-        function getTrackRadius(ang) {
-            let normalized = ang % (Math.PI * 2);
-            if (normalized < 0) normalized += Math.PI * 2;
-            let index = (normalized / (Math.PI * 2)) * numPoints;
-            let i1 = Math.floor(index);
-            let i2 = (i1 + 1) % numPoints;
-            let t = index - i1;
-            return points[i1].r * (1 - t) + points[i2].r * t;
-        }
-
-        // Игрок / Машина
-        const car = {
-            x: 0,
-            y: 0,
-            angle: Math.PI / 2,
-            speed: 0,
-            maxSpeed: 3.5,
-            turnSpeed: 0.045,
-            trackDist: baseRadius
-        };
+        let playerPos = 0;      // позиция на трассе
+        let playerX = 0;        // смещение влево/вправо относительно центра (-1 до 1)
+        let playerSpeed = 0;
+        let maxSpeed = 3.2;
+        let currentThrottlePercent = 20;
+        let steerInput = 0;
 
         let laps = 1;
         const maxLaps = 5;
         let gameStarted = false;
         let finished = false;
         let startTime = 0;
-        let currentThrottlePercent = 20;
-        let steerInput = 0;
-
-        // Начальная позиция на трассе
-        car.x = Math.cos(0) * baseRadius;
-        car.y = Math.sin(0) * baseRadius;
 
         function triggerGameStart() {
             if (!gameStarted && !finished) {
@@ -242,183 +221,189 @@
             });
         });
 
-        // 3D РЕНДЕР ОТ ПЕРВОГО ЛИЦА
-        function render3D() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // ОТРИСОВКА РЕАЛИСТИЧНОГО ПСЕВДО-3D МИРА
+        function renderRoad() {
+            let width = canvas.width;
+            let height = canvas.height;
 
-            let w = canvas.width;
-            let h = canvas.height;
-            let horizon = h * 0.45;
-
-            // Небо
+            // 1. Небо
             ctx.fillStyle = '#1976d2';
-            ctx.fillRect(0, 0, w, horizon);
-            // Земля/трава
+            ctx.fillRect(0, 0, width, height * 0.4);
+
+            // 2. Земля/Трава
             ctx.fillStyle = '#1b5e20';
-            ctx.fillRect(0, horizon, w, h - horizon);
+            ctx.fillRect(0, height * 0.4, width, height * 0.6);
 
-            // Рендер сегментов дороги в перспективе (Raycasting / Pseudo-3D)
-            let drawDistance = 80;
-            let segmentLength = 2;
+            let drawDistance = 120;
+            let baseSegmentIndex = Math.floor(playerPos);
             
-            let playerAngle = Math.atan2(car.y, car.x);
-            let trackWidth = 140;
+            let x = 0;
+            let dx = 0;
 
-            let renderList = [];
+            // Отрисовка от дальних сегментов к ближним
+            let maxY = height * 0.4;
 
-            for (let i = drawDistance; i > 0; i--) {
-                let sampleAngle = playerAngle + (i * 0.015 * (car.speed > 0 ? 1 : 0));
-                let trackRad = getTrackRadius(sampleAngle);
-                
-                let cx = Math.cos(sampleAngle) * trackRad;
-                let cy = Math.sin(sampleAngle) * trackRad;
+            for (let n = drawDistance; n > 0; n--) {
+                let segmentIndex = (baseSegmentIndex + n) % totalRoadLength;
+                let segment = roadMap[segmentIndex];
 
-                // Проекция на экран
-                let p1 = project(cx, cy, i, w, h, horizon, trackWidth);
-                let p2 = project(cx, cy, i + segmentLength, w, h, horizon, trackWidth);
+                // Накапливаем кривизну для сгиба дороги на экране
+                dx += segment.curve;
+                x += dx;
 
-                if (p1.clip) {
-                    renderList.push({ p1, i, sampleAngle });
+                let scale = n / drawDistance;
+                let nextScale = (n - 1) / drawDistance;
+
+                // Перспективные координаты
+                let p1 = project(x, height * 0.4, scale, width, height);
+                let p2 = project(x - segment.curve, height * 0.4, nextScale, width, height);
+
+                if (p1.y >= maxY) {
+                    let grassColor = (segmentIndex % 2 === 0) ? '#2e7d32' : '#1b5e20';
+                    let rumbleColor = (segmentIndex % 4 < 2) ? '#e53935' : '#fff';
+                    let roadColor = (segmentIndex % 2 === 0) ? '#424242' : '#4e4e4e';
+                    let stripeColor = (segmentIndex % 4 < 2) ? '#fff' : '#424242';
+
+                    // Трава / обочина
+                    ctx.fillStyle = grassColor;
+                    ctx.fillRect(0, p2.y, width, p1.y - p2.y);
+
+                    // Ограничители (поребрики)
+                    polygon(
+                        p1.x - p1.w * 1.3, p1.y,
+                        p1.x - p1.w, p1.y,
+                        p2.x - p2.w, p2.y,
+                        p2.x - p2.w * 1.3, p2.y,
+                        rumbleColor
+                    );
+                    polygon(
+                        p1.x + p1.w, p1.y,
+                        p1.x + p1.w * 1.3, p1.y,
+                        p2.x + p2.w * 1.3, p2.y,
+                        p2.x + p2.w, p2.y,
+                        rumbleColor
+                    );
+
+                    // Дорожное полотно
+                    polygon(
+                        p1.x - p1.w, p1.y,
+                        p1.x + p1.w, p1.y,
+                        p2.x + p2.w, p2.y,
+                        p2.x - p2.w, p2.y,
+                        roadColor
+                    );
+
+                    // Разделительная полоса по центру
+                    polygon(
+                        p1.x - p1.w * 0.1, p1.y,
+                        p1.x + p1.w * 0.1, p1.y,
+                        p2.x + p2.w * 0.1, p2.y,
+                        p2.x - p2.w * 0.1, p2.y,
+                        stripeColor
+                    );
+
+                    maxY = p1.y;
                 }
             }
 
-            // Отрисовка дороги от дальних сегментов к ближним
-            for (let idx = renderList.length - 1; idx >= 0; idx--) {
-                let item = renderList[idx];
-                let p = item.p1;
-                let nextP = idx > 0 ? renderList[idx - 1].p1 : p;
-
-                // Цвет асфальта меняется для эффекта движения
-                let isEven = Math.floor(item.i + Date.now() / 50) % 2 === 0;
-                ctx.fillStyle = isEven ? '#333' : '#3a3a3a';
-
-                // Дорожное полотно
-                ctx.beginPath();
-                ctx.moveTo(p.left, p.y);
-                ctx.lineTo(p.right, p.y);
-                ctx.lineTo(nextP.right, nextP.y);
-                ctx.lineTo(nextP.left, nextP.y);
-                ctx.closePath();
-                ctx.fill();
-
-                // Боковые отбойники (поребрики с поворотами)
-                ctx.fillStyle = isEven ? '#e53935' : '#fff';
-                // Левый бортик
-                ctx.fillRect(p.left - 10, p.y, 10, Math.max(1, p.y - nextP.y));
-                // Правый бортик
-                ctx.fillRect(p.right, p.y, 10, Math.max(1, p.y - nextP.y));
-            }
-
-            // Отрисовка капота и носа болида от первого лица внизу экрана
-            drawCockpit(w, h);
+            // Машинка игрока на переднем плане
+            drawCar(width, height);
         }
 
-        function project(worldX, worldY, depth, w, h, horizon, trackWidth) {
-            // Относительные координаты игрока
-            let relX = worldX - car.x;
-            let relY = worldY - car.y;
-
-            // Поворот по углу взгляда машины
-            let cos = Math.cos(-car.angle);
-            let sin = Math.sin(-car.angle);
-            let camX = relX * cos - relY * sin;
-            let camY = relX * sin + relY * cos;
-
-            if (camY <= 0) return { clip: false };
-
-            let scale = 300 / camY;
-            let screenX = w / 2 + (camX * scale);
-            let screenY = horizon + (camY * scale * 0.2); // Эффект наклона дороги
-
-            let halfW = (trackWidth * scale) / 2;
-
-            return {
-                left: screenX - halfW,
-                right: screenX + halfW,
-                y: screenY,
-                clip: true
-            };
+        function project(roadX, horizonY, scale, width, height) {
+            let cameraX = playerX * width * 0.5;
+            let px = (width / 2) + (roadX * width * 0.15) - (cameraX * scale);
+            let py = horizonY + (1 - scale) * (height * 0.6);
+            let pw = scale * (width * 0.45);
+            return { x: px, y: py, w: pw };
         }
 
-        function drawCockpit(w, h) {
-            // Капот машины снизу
-            ctx.fillStyle = '#b71c1c';
+        function polygon(x1, y1, x2, y2, x3, y3, x4, y4, color) {
+            ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.moveTo(w * 0.2, h);
-            ctx.lineTo(w * 0.4, h * 0.7);
-            ctx.lineTo(w * 0.6, h * 0.7);
-            ctx.lineTo(w * 0.8, h);
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x3, y3);
+            ctx.lineTo(x4, y4);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawCar(w, h) {
+            let cx = w / 2;
+            let cy = h - 120;
+
+            // Тень
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(cx - 70, cy + 40, 140, 30);
+
+            // Заднее антикрыло
+            ctx.fillStyle = '#111';
+            ctx.fillRect(cx - 65, cy - 10, 130, 18);
+
+            // Корпус болида (красный)
+            ctx.fillStyle = '#e53935';
+            ctx.beginPath();
+            ctx.moveTo(cx - 50, cy + 50);
+            ctx.lineTo(cx - 35, cy - 10);
+            ctx.lineTo(cx + 35, cy - 10);
+            ctx.lineTo(cx + 50, cy + 50);
             ctx.closePath();
             ctx.fill();
 
-            // Желтый носовой обтекатель
+            // Яркий желтый носовой обтекатель спереди (четко виден)
             ctx.fillStyle = '#ffeb3b';
             ctx.beginPath();
-            ctx.moveTo(w * 0.45, h * 0.7);
-            ctx.lineTo(w * 0.55, h * 0.7);
-            ctx.lineTo(w * 0.52, h * 0.5);
-            ctx.lineTo(w * 0.48, h * 0.5);
+            ctx.moveTo(cx - 20, cy + 20);
+            ctx.lineTo(cx + 20, cy + 20);
+            ctx.lineTo(cx + 12, cy + 90);
+            ctx.lineTo(cx - 12, cy + 90);
             ctx.closePath();
             ctx.fill();
 
-            // Руль внизу
-            ctx.fillStyle = '#111';
+            // Шлем пилота
+            ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.arc(w / 2, h + 100, 180, Math.PI, 0);
+            ctx.arc(cx, cy + 10, 14, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#e53935';
-            ctx.lineWidth = 12;
-            ctx.stroke();
         }
 
         // ОБНОВЛЕНИЕ ФИЗИКИ
         function update() {
             if (finished) return;
 
-            let targetSpeed = (currentThrottlePercent / 100) * car.maxSpeed;
-            car.speed += (targetSpeed - car.speed) * 0.1;
+            let targetSpeed = (currentThrottlePercent / 100) * maxSpeed;
+            playerSpeed += (targetSpeed - playerSpeed) * 0.1;
 
-            car.angle += car.turnSpeed * steerInput * (car.speed / car.maxSpeed);
-
-            car.x += Math.cos(car.angle) * car.speed * 15;
-            car.y += Math.sin(car.angle) * car.speed * 15;
-
-            // Проверка границ трассы
-            let angFromCenter = Math.atan2(car.y, car.x);
-            let distFromCenter = Math.hypot(car.x, car.y);
-            let trackRad = getTrackRadius(angFromCenter);
-
-            let innerLimit = trackRad - 55;
-            let outerLimit = trackRad + 55;
-
-            if (distFromCenter < innerLimit || distFromCenter > outerLimit) {
-                let clampedDist = Math.max(innerLimit, Math.min(outerLimit, distFromCenter));
-                car.x = Math.cos(angFromCenter) * clampedDist;
-                car.y = Math.sin(angFromCenter) * clampedDist;
-                car.speed *= 0.3; // Удар об отбойник
+            if (gameStarted) {
+                playerPos += playerSpeed;
             }
 
-            // Система кругов
-            let curNormalized = angFromCenter;
-            if (curNormalized < 0) curNormalized += Math.PI * 2;
+            // Поворот руля смещает машину влево/вправо
+            playerX += steerInput * 0.035 * (playerSpeed / maxSpeed);
 
-            if (car.trackDist > 5 && curNormalized < 1) {
-                if (gameStarted) {
-                    laps++;
-                    if (laps > maxLaps) {
-                        finished = true;
-                        let finalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-                        uiTime.innerText = finalTime;
-                        uiLap.innerText = maxLaps;
-                        msg.style.display = 'block';
-                        finalTimeLabel.innerText = `Время: ${finalTime} сек`;
-                        uiHint.innerText = "Гонка завершена!";
-                    } else {
-                        uiLap.innerText = laps;
-                    }
+            // Вылет за пределы дороги
+            if (playerX < -1.4 || playerX > 1.4) {
+                playerX = Math.max(-1.4, Math.min(1.4, playerX));
+                playerSpeed *= 0.3; // Удар об отбойник замедляет
+            }
+
+            // Просчет кругов
+            if (playerPos >= totalRoadLength) {
+                playerPos -= totalRoadLength;
+                laps++;
+                if (laps > maxLaps) {
+                    finished = true;
+                    let finalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                    uiTime.innerText = finalTime;
+                    uiLap.innerText = maxLaps;
+                    msg.style.display = 'block';
+                    finalTimeLabel.innerText = `Время: ${finalTime} сек`;
+                    uiHint.innerText = "Гонка завершена!";
+                } else {
+                    uiLap.innerText = laps;
                 }
             }
-            car.trackDist = curNormalized;
 
             if (gameStarted && !finished) {
                 uiTime.innerText = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -427,7 +412,7 @@
 
         function gameLoop() {
             update();
-            render3D();
+            renderRoad();
             requestAnimationFrame(gameLoop);
         }
 
