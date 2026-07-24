@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>F1 Pro Racing - Gears</title>
+    <title>F1 Pro Racing - Joystick</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body, html {
@@ -36,28 +36,23 @@
         }
         #message span { display: block; font-size: 5vw; color: #fff; margin-top: 8px; }
 
-        /* РУЛЬ СЛЕВА */
-        #steering-wheel {
+        /* ДЖОЙСТИК СЛЕВА */
+        #joystick-container {
             position: absolute; bottom: 30px; left: 30px;
             width: 130px; height: 130px;
             background: rgba(255, 255, 255, 0.1);
-            border: 4px solid rgba(255, 255, 255, 0.5);
+            border: 3px solid rgba(255, 255, 255, 0.4);
             border-radius: 50%; touch-action: none; z-index: 15;
             backdrop-filter: blur(2px);
-            display: flex; align-items: center; justify-content: center;
         }
-        #wheel-inner {
-            width: 100%; height: 100%; position: relative;
-            border-radius: 50%; transition: transform 0.03s linear;
-        }
-        #wheel-inner::before {
-            content: ''; position: absolute; top: 50%; left: 10%; right: 10%; height: 6px;
-            background: rgba(255, 255, 255, 0.7); transform: translateY(-50%); border-radius: 3px;
-        }
-        #wheel-inner::after {
-            content: ''; position: absolute; top: 50%; left: 50%; width: 36px; height: 36px;
-            background: #b71c1c; border: 2px solid #fff; border-radius: 50%;
+        #joystick-knob {
+            position: absolute; top: 50%; left: 50%;
+            width: 56px; height: 56px;
+            background: radial-gradient(circle, #ff5252 0%, #b71c1c 100%);
+            border: 2px solid #fff; border-radius: 50%;
             transform: translate(-50%, -50%);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            pointer-events: none;
         }
 
         /* ПАНЕЛЬ ПЕРЕДАЧ СПРАВА */
@@ -94,16 +89,14 @@
         <div id="ui">
             Круг: <span id="lap" class="highlight">1</span> / 5<br>
             Время: <span id="time" class="highlight">0.00</span>с
-            <div id="start-hint">Поверните руль и выберите передачу</div>
+            <div id="start-hint">Потяните джойстик и выберите передачу</div>
         </div>
         <div id="message">ФИНИШ!<span id="final-time"></span></div>
         
-        <!-- РУЛЬ -->
-        <div id="steering-wheel">
-            <div id="wheel-inner"></div>
-        </div>
+        <!-- ДЖОЙСТИК -->
+        <div id="joystick-container"><div id="joystick-knob"></div></div>
 
-        <!-- КНОПКИ ПЕРЕДАЧ (20-100%) -->
+        <!-- КНОПКИ ПЕРЕДАЧ -->
         <div id="gear-container">
             <div class="gear-btn" data-speed="100">100%</div>
             <div class="gear-btn" data-speed="80">80%</div>
@@ -132,18 +125,17 @@
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
 
-        const trackWidth = Math.max(55, MathMinDim * 0.16);
-        let baseRadius = (MathMinDim / 2) - trackWidth - 30;
-        if (baseRadius < 60) baseRadius = 60;
+        // ШИРОКАЯ ТРАССА (исходная плавная форма Ф1)
+        const trackWidth = Math.max(70, MathMinDim * 0.20); 
+        let baseRadius = (MathMinDim / 2) - trackWidth - 25;
+        if (baseRadius < 50) baseRadius = 50;
 
-        // --- БОЛЕЕ ДЛИННАЯ И ИНТЕРЕСНАЯ КАРТА ---
-        const numPoints = 200; // Больше точек для длинной трассы
+        const numPoints = 150;
         const points = [];
 
         for (let i = 0; i < numPoints; i++) {
             let angle = (i / numPoints) * Math.PI * 2;
-            // Сложная, более вытянутая и длинная конфигурация трассы
-            let rMod = Math.sin(angle * 3) * 0.3 + Math.cos(angle * 2) * 0.2;
+            let rMod = Math.sin(angle * 2) * 0.25 + Math.cos(angle * 3) * 0.15;
             let r = baseRadius * (1 + rMod);
             points.push({ angle, r });
         }
@@ -168,10 +160,10 @@
             y: cy,
             angle: Math.PI / 2,
             speed: 0,
-            maxSpeed: ((baseRadius * Math.PI * 2) / 600) * 5,
-            turnSpeed: 0.085,
-            width: trackWidth * 0.38,
-            height: trackWidth * 0.17
+            maxSpeed: ((baseRadius * Math.PI * 2) / 550) * 5,
+            turnSpeed: 0.09,
+            width: trackWidth * 0.4,
+            height: trackWidth * 0.18
         };
 
         let laps = 1;
@@ -181,7 +173,7 @@
         let finished = false;
         let startTime = 0;
 
-        let currentThrottlePercent = 20; // По умолчанию на старте 20%
+        let currentThrottlePercent = 20;
         let steerInput = 0;
 
         function triggerGameStart() {
@@ -193,64 +185,63 @@
             }
         }
 
-        // --- МУЛЬТИТАЧ УПРАВЛЕНИЕ РУЛЕМ ---
-        const wheelBase = document.getElementById('steering-wheel');
-        const wheelInner = document.getElementById('wheel-inner');
-        let wheelTouchId = null;
-        let wheelCenterX = 0, wheelCenterY = 0;
+        // --- МУЛЬТИТАЧ ДЖОЙСТИК ---
+        const joystickBase = document.getElementById('joystick-container');
+        const joystickKnob = document.getElementById('joystick-knob');
+        const maxJoystickRadius = 40;
+        let joystickTouchId = null;
 
-        wheelBase.addEventListener('touchstart', e => {
+        joystickBase.addEventListener('touchstart', e => {
             e.preventDefault();
-            if (wheelTouchId === null) {
+            if (joystickTouchId === null) {
                 const touch = e.changedTouches[0];
-                wheelTouchId = touch.identifier;
-                const rect = wheelBase.getBoundingClientRect();
-                wheelCenterX = rect.left + rect.width / 2;
-                wheelCenterY = rect.top + rect.height / 2;
-                updateWheel(touch);
+                joystickTouchId = touch.identifier;
+                updateJoystick(touch);
                 triggerGameStart();
             }
         }, {passive: false});
 
         window.addEventListener('touchmove', e => {
-            if (wheelTouchId === null) return;
+            if (joystickTouchId === null) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 let touch = e.changedTouches[i];
-                if (touch.identifier === wheelTouchId) {
+                if (touch.identifier === joystickTouchId) {
                     e.preventDefault();
-                    updateWheel(touch);
+                    updateJoystick(touch);
                 }
             }
         }, {passive: false});
 
         window.addEventListener('touchend', e => {
-            if (wheelTouchId === null) return;
+            if (joystickTouchId === null) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
-                if (e.changedTouches[i].identifier === wheelTouchId) {
-                    wheelTouchId = null;
+                if (e.changedTouches[i].identifier === joystickTouchId) {
+                    joystickTouchId = null;
                     steerInput = 0;
-                    wheelInner.style.transform = `rotate(0deg)`;
+                    joystickKnob.style.transform = `translate(-50%, -50%)`;
                 }
             }
         });
 
-        function updateWheel(touch) {
-            let dx = touch.clientX - wheelCenterX;
-            let dy = touch.clientY - wheelCenterY;
-            let angleRad = Math.atan2(dy, dx);
-            let angleDeg = angleRad * (180 / Math.PI) + 90;
+        function updateJoystick(touch) {
+            const rect = joystickBase.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
             
-            if (angleDeg > 180) angleDeg -= 360;
-            if (angleDeg < -180) angleDeg += 360;
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
             
-            if (angleDeg > 95) angleDeg = 95;
-            if (angleDeg < -95) angleDeg = -95;
-
-            wheelInner.style.transform = `rotate(${angleDeg}deg)`;
-            steerInput = angleDeg / 95;
+            let dist = Math.hypot(dx, dy);
+            if (dist > maxJoystickRadius) {
+                dx = (dx / dist) * maxJoystickRadius;
+                dy = (dy / dist) * maxJoystickRadius;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            steerInput = dx / maxJoystickRadius; // Поворот вправо/влево
         }
 
-        // --- КНОПКИ ПЕРЕДАЧ (МУЛЬТИТАЧ) ---
+        // --- КНОПКИ ПЕРЕДАЧ ---
         const gearBtns = document.querySelectorAll('.gear-btn');
         gearBtns.forEach(btn => {
             btn.addEventListener('touchstart', e => {
@@ -261,7 +252,6 @@
                 triggerGameStart();
             }, {passive: false});
             
-            // Также поддержка кликов мышей для отладки на ПК
             btn.addEventListener('mousedown', () => {
                 gearBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
@@ -269,7 +259,6 @@
                 triggerGameStart();
             });
         });
-
 
         // --- ОТРИСОВКА ТРАССЫ ---
         function drawTrack() {
@@ -285,7 +274,6 @@
             }
             ctx.closePath();
             
-            // Бордюры
             ctx.lineWidth = trackWidth + (trackWidth * 0.15);
             ctx.strokeStyle = '#fff';
             ctx.lineJoin = 'round';
@@ -296,7 +284,6 @@
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Асфальт
             ctx.lineWidth = trackWidth;
             ctx.strokeStyle = '#333';
             ctx.stroke();
@@ -321,7 +308,7 @@
             ctx.restore();
         }
 
-        // --- ДЕТАЛИЗИРОВАННЫЙ БОЛИД (С ЯСНЫМ ПЕРЕДОМ И ЗАДОМ) ---
+        // --- МАШИНКА С ОЧЕНЬ ЧЕТКИМ ПЕРЕДОМ ---
         function drawCar() {
             ctx.save();
             ctx.translate(car.x, car.y);
@@ -331,35 +318,41 @@
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.fillRect(-car.width/2 + 3, -car.height/2 + 3, car.width, car.height);
 
-            // ЗАДНЯЯ ЧАСТЬ (Мощное черное антикрыло + двигатель)
+            // ЗАДНЕЕ АНТИКРЫЛО
             ctx.fillStyle = '#111';
-            ctx.fillRect(-car.width/2 - 3, -car.height/2 - 2, 7, car.height + 4); // Заднее крыло
-            
-            // Основной красный корпус
+            ctx.fillRect(-car.width/2 - 4, -car.height/2 - 1, 6, car.height + 2);
+
+            // ОСНОВНОЙ КОРПУС
             ctx.fillStyle = '#e53935';
             ctx.beginPath();
             ctx.moveTo(-car.width/2 + 4, -car.height/3);
-            ctx.lineTo(car.width/2 - 4, -car.height/4);
-            ctx.lineTo(car.width/2, 0); // Острый нос спереди
-            ctx.lineTo(car.width/2 - 4, car.height/4);
+            ctx.lineTo(car.width/2 - 6, -car.height/4);
+            ctx.lineTo(car.width/2, 0); // Острый нос
+            ctx.lineTo(car.width/2 - 6, car.height/4);
             ctx.lineTo(-car.width/2 + 4, car.height/3);
             ctx.closePath();
             ctx.fill();
 
-            // ПЕРЕДНЯЯ ЧАСТЬ (Переднее широкое черное антикрыло и носовой обтекатель)
-            ctx.fillStyle = '#111';
-            ctx.fillRect(car.width/2 - 4, -car.height/2, 5, car.height); // Переднее антикрыло
-            
-            // Кокпит (кабина пилота посредине)
-            ctx.fillStyle = '#050505';
-            ctx.beginPath();
-            ctx.roundRect(-car.width * 0.05, -car.height * 0.18, car.width * 0.3, car.height * 0.36, 4);
-            ctx.fill();
-
-            // Шлем пилота (виден внутри кабины)
+            // ЯРКИЙ НОСОВОЙ ОБТЕКАТЕЛЬ (для максимальной отчетливости спереди)
             ctx.fillStyle = '#ffeb3b';
             ctx.beginPath();
-            ctx.arc(car.width * 0.1, 0, car.height * 0.12, 0, Math.PI * 2);
+            ctx.moveTo(car.width/2 - 8, -car.height/6);
+            ctx.lineTo(car.width/2, 0);
+            ctx.lineTo(car.width/2 - 8, car.height/6);
+            ctx.closePath();
+            ctx.fill();
+
+            // ПЕРЕДНЕЕ ШИРОКОЕ АНТИКРЫЛО
+            ctx.fillStyle = '#111';
+            ctx.fillRect(car.width/2 - 4, -car.height/2 - 2, 5, car.height + 4);
+
+            // КАБИНА ПИЛОТА И ШЛЕМ
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-car.width * 0.05, -car.height * 0.15, car.width * 0.25, car.height * 0.3);
+            
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(car.width * 0.08, 0, car.height * 0.1, 0, Math.PI * 2);
             ctx.fill();
 
             ctx.restore();
@@ -379,7 +372,7 @@
             car.x += Math.cos(car.angle) * car.speed;
             car.y += Math.sin(car.angle) * car.speed;
 
-            // --- ОТБОЙНИКИ ТРАССЫ ---
+            // --- СТЕНЫ И ГРАНИЦЫ ТРАССЫ ---
             let angFromCenter = Math.atan2(car.y - cy, car.x - cx);
             let distFromCenter = Math.hypot(car.y - cy, car.x - cx);
             let trackRad = getTrackRadius(angFromCenter);
@@ -392,10 +385,10 @@
                 car.x = cx + Math.cos(angFromCenter) * clampedDist;
                 car.y = cy + Math.sin(angFromCenter) * clampedDist;
                 
-                car.speed *= 0.4; // Гашение скорости при ударе об отбойник
+                car.speed *= 0.4; // Замедление при ударе об отбойник
             }
 
-            // --- СИСТЕМА КРУГОВ ---
+            // --- КРУГИ ---
             let curNormalized = angFromCenter;
             if (curNormalized < 0) curNormalized += Math.PI * 2;
 
