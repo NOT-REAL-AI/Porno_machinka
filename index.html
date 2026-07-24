@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Racing 5 Laps</title>
+    <style>
+        body {
+            margin: 0;
+            background: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 4px solid #333;
+        }
+        canvas {
+            display: block;
+            background: #2e7d32; /* Цвет травы */
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 20px;
+            font-weight: bold;
+            pointer-events: none;
+            border: 2px solid #555;
+        }
+        .highlight { color: #4fc3f7; }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 56px;
+            font-weight: 900;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(0, 0, 0, 0.9), 4px 4px 0 #000;
+            display: none;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #message span {
+            display: block;
+            font-size: 24px;
+            color: #fff;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">
+            Круг: <span id="lap" class="highlight">1</span> / 5<br>
+            Время: <span id="time">0.00</span>с
+        </div>
+        <div id="message">
+            ФИНИШ!
+            <span id="final-time"></span>
+        </div>
+        <canvas id="gameCanvas" width="900" height="700"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Элементы UI
+        const uiLap = document.getElementById('lap');
+        const uiTime = document.getElementById('time');
+        const msg = document.getElementById('message');
+        const finalTimeLabel = document.getElementById('final-time');
+
+        // Центр экрана
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+
+        // --- ГЕНЕРАЦИЯ ТРАССЫ ---
+        const numPoints = 60; // Количество точек для сглаживания
+        const points = [];
+        const trackWidth = 70;
+
+        // Создаем замкнутый контур с умеренными изгибами
+        for (let i = 0; i < numPoints; i++) {
+            let angle = (i / numPoints) * Math.PI * 2;
+            // Базовый радиус 240px. Добавляем синусоидальный шум + немного рандома, 
+            // чтобы трасса была кривой, но плавной и проходимой.
+            let noise = Math.sin(angle * 4) * 25 + Math.cos(angle * 2) * 20 + (Math.random() * 15 - 7.5);
+            let r = 240 + noise;
+            points.push({ angle, r });
+        }
+
+        // Функция для вычисления точного радиуса трассы под любым углом (линейная интерполяция)
+        function getTrackRadius(ang) {
+            let normalized = ang % (Math.PI * 2);
+            if (normalized < 0) normalized += Math.PI * 2;
+            
+            let index = (normalized / (Math.PI * 2)) * numPoints;
+            let i1 = Math.floor(index);
+            let i2 = (i1 + 1) % numPoints;
+            let t = index - i1; // Процент между двумя точками
+            
+            return points[i1].r * (1 - t) + points[i2].r * t;
+        }
+
+        // --- НАСТРОЙКИ МАШИНКИ ---
+        let startRadius = getTrackRadius(0); // Спавнимся ровно на линии старта (угол 0)
+        
+        const car = {
+            x: cx + startRadius,
+            y: cy,
+            angle: Math.PI / 2, // Смотрит вниз, чтобы поехать по часовой стрелке
+            speed: 0,
+            maxSpeed: 2.5,     // Подобрано так, чтобы круг (~1500px) занимал ~10 сек при 60 FPS
+            accel: 0.06,
+            friction: 0.97,    // Трение асфальта
+            grassFriction: 0.85, // Сильное трение травы (замедление)
+            turnSpeed: 0.055,
+            width: 22,
+            height: 12
+        };
+
+        // --- ЛОГИКА ИГРЫ ---
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        let laps = 1;
+        const maxLaps = 5;
+        let prevAngleRelative = 0;
+        let startTime = Date.now();
+        let finished = false;
+
+        function drawTrack() {
+            // Очистка и фон (трава)
+            ctx.fillStyle = '#2e7d32';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Отрисовка асфальта
+            ctx.beginPath();
+            for (let i = 0; i <= numPoints; i++) {
+                let p = points[i % numPoints];
+                let px = cx + Math.cos(p.angle) * p.r;
+                let py = cy + Math.sin(p.angle) * p.r;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            
+            // Внешний контур (поребрики)
+            ctx.lineWidth = trackWidth + 6;
+            ctx.strokeStyle = '#b71c1c'; 
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            // Сам асфальт
+            ctx.lineWidth = trackWidth;
+            ctx.strokeStyle = '#424242';
+            ctx.stroke();
+
+            // Разметка старт/финиш
+            ctx.save();
+            ctx.translate(cx + startRadius, cy);
+            for(let j = -trackWidth/2; j < trackWidth/2; j += 10) {
+                for(let i = -10; i <= 0; i += 10) {
+                    ctx.fillStyle = ((j/10 + i/10) % 2 === 0) ? '#fff' : '#000';
+                    ctx.fillRect(i, j, 10, 10);
+                }
+            }
+            ctx.restore();
+        }
+
+        function drawCar() {
+            ctx.save();
+            ctx.translate(car.x, car.y);
+            ctx.rotate(car.angle);
+            
+            // Тень машинки
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(-car.width/2 + 2, -car.height/2 + 2, car.width, car.height);
+
+            // Корпус
+            ctx.fillStyle = '#d32f2f'; // Красная гоночная
+            ctx.beginPath();
+            ctx.roundRect(-car.width/2, -car.height/2, car.width, car.height, 3);
+            ctx.fill();
+
+            // Стекла
+            ctx.fillStyle = '#1e88e5';
+            ctx.fillRect(-car.width/2 + 4, -car.height/2 + 1, 6, car.height - 2); // Заднее
+            ctx.fillRect(car.width/2 - 7, -car.height/2 + 1, 4, car.height - 2);  // Лобовое
+
+            // Фары
+            ctx.fillStyle = '#ffee58';
+            ctx.fillRect(car.width/2 - 2, -car.height/2 + 1, 3, 3);
+            ctx.fillRect(car.width/2 - 2, car.height/2 - 4, 3, 3);
+
+            ctx.restore();
+        }
+
+        function update() {
+            if (finished) return;
+
+            // Управление
+            let isMoving = false;
+            if (keys['ArrowUp'] || keys['KeyW']) { car.speed += car.accel; isMoving = true; }
+            if (keys['ArrowDown'] || keys['KeyS']) { car.speed -= car.accel; isMoving = true; }
+            
+            // Поворот зависит от текущей скорости
+            let turnMod = (car.speed / car.maxSpeed); 
+            if (keys['ArrowLeft'] || keys['KeyA']) car.angle -= car.turnSpeed * turnMod;
+            if (keys['ArrowRight'] || keys['KeyD']) car.angle += car.turnSpeed * turnMod;
+
+            // Вычисляем положение машины относительно центра трассы
+            let angFromCenter = Math.atan2(car.y - cy, car.x - cx);
+            let distFromCenter = Math.hypot(car.y - cy, car.x - cx);
+            let trackRad = getTrackRadius(angFromCenter);
+
+            // Проверка: находится ли машина на асфальте?
+            let isOnGrass = Math.abs(distFromCenter - trackRad) > (trackWidth / 2 - 5);
+            
+            // Применяем трение (трава сильно тормозит)
+            if (isOnGrass) {
+                car.speed *= car.grassFriction;
+            } else {
+                car.speed *= car.friction;
+            }
+
+            // Ограничение скорости
+            if (car.speed > car.maxSpeed && !isOnGrass) car.speed = car.maxSpeed;
+            if (car.speed < -car.maxSpeed / 1.5) car.speed = -car.maxSpeed / 1.5;
+
+            // Обновление координат
+            car.x += Math.cos(car.angle) * car.speed;
+            car.y += Math.sin(car.angle) * car.speed;
+
+            // --- СИСТЕМА КРУГОВ ---
+            let curNormalized = angFromCenter;
+            if (curNormalized < 0) curNormalized += Math.PI * 2;
+
+            // Пересечение линии старта (от 4-й четверти к 1-й)
+            if (prevAngleRelative > 5 && curNormalized < 1) {
+                laps++;
+                if (laps > maxLaps) {
+                    finished = true;
+                    msg.style.display = 'block';
+                    let totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                    finalTimeLabel.innerText = `Итоговое время: ${totalTime} сек`;
+                    uiLap.innerText = maxLaps;
+                } else {
+                    uiLap.innerText = laps;
+                }
+            }
+            // Защита от накрутки кругов ездой задом наперед
+            else if (prevAngleRelative < 1 && curNormalized > 5) {
+                laps--;
+                uiLap.innerText = laps;
+            }
+            prevAngleRelative = curNormalized;
+
+            // Обновление UI времени
+            if (!finished) {
+                let elapsed = (Date.now() - startTime) / 1000;
+                uiTime.innerText = elapsed.toFixed(2);
+            }
+        }
+
+        function gameLoop() {
+            update();
+            drawTrack();
+            drawCar();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Инициализация стартового угла
+        prevAngleRelative = Math.atan2(car.y - cy, car.x - cx);
+        if (prevAngleRelative < 0) prevAngleRelative += Math.PI * 2;
+        
+        // Запуск
+        gameLoop();
+    </script>
+</body>
+</html>
